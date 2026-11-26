@@ -1,5 +1,102 @@
 pipeline:
+
+  description: Release Tag
+
+  clone:
+
+    enabled: true
+
+    connector: connector_Github_3a28
+
+    repo: Orion-user1/app-release-tag
+
+    ref:
+
+      type: branch
+
+      name: main
+
   stages:
-    - steps:
-        - run:
-            script: echo "hello world"
+
+    - id: app_release_tag
+
+      name: App Release Tag
+
+      runtime: cloud
+
+      platform:
+
+        os: linux
+
+        arch: amd64
+
+      steps:
+
+        - id: create_release_tag
+
+          name: Create Release Tag
+
+          run:
+
+            script: |
+              #!/bin/bash
+              set -e
+
+              echo "========================================="
+              echo "Creating Release Tag from RC Version"
+              echo "========================================="
+
+              git config --global user.name "Harness CI"
+              git config --global user.email "ci@harness.io"
+
+              git fetch --tags
+
+              LATEST_RC_TAG=$(git tag -l "v*-rc*" | sort -V | tail -n 1)
+
+              if [ -z "$LATEST_RC_TAG" ]; then
+                echo "Error: No RC tag found"
+                exit 1
+              fi
+
+              echo "Latest RC Tag found: $LATEST_RC_TAG"
+
+              RELEASE_TAG=$(echo "$LATEST_RC_TAG" | sed 's/-rc[0-9]*$//')
+
+              echo "Creating Release Tag: $RELEASE_TAG"
+
+              if git rev-parse "$RELEASE_TAG" >/dev/null 2>&1; then
+                echo "Release tag already exists"
+                git tag -d "$RELEASE_TAG" || true
+                git push origin --delete "$RELEASE_TAG" || true
+              fi
+
+              RC_COMMIT=$(git rev-list -n 1 "$LATEST_RC_TAG")
+
+              echo "RC Tag Commit: $RC_COMMIT"
+
+              git tag -a "$RELEASE_TAG" "$RC_COMMIT" \
+                -m "Release tag $RELEASE_TAG created from $LATEST_RC_TAG"
+
+              git push origin "$RELEASE_TAG"
+
+              echo "Release tag created successfully"
+
+              VERSION_PREFIX=$(echo "$RELEASE_TAG" | sed 's/v//')
+
+              OLD_RC_TAGS=$(git tag -l "v${VERSION_PREFIX}-rc*")
+
+              if [ ! -z "$OLD_RC_TAGS" ]; then
+
+                for tag in $OLD_RC_TAGS; do
+                  echo "Deleting RC tag: $tag"
+                  git tag -d "$tag" || true
+                  git push origin --delete "$tag" || true
+                done
+
+                echo "RC tags cleaned up"
+              fi
+
+              echo "========================================="
+              echo "Process completed successfully"
+              echo "Release Tag: $RELEASE_TAG"
+              echo "========================================="
